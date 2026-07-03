@@ -1,7 +1,7 @@
 "use strict";
 /* ============ SOLO LEVELING SYSTEM — V3 PWA « MONARQUE » ============ */
 
-const APP_VERSION = "3.0.0";
+const APP_VERSION = "3.2.0";
 const KEY = "sls-data";
 
 /* ===== constantes de jeu ===== */
@@ -21,6 +21,7 @@ const STATS = {
   INT: { label: "Intelligence", hint: "études, travail" },
   VOL: { label: "Volonté", hint: "discipline, habitudes" },
   SOC: { label: "Social", hint: "équipe, relations" },
+  SAN: { label: "Santé", hint: "sommeil, nutrition, soin" },
 };
 
 /* ===== helpers ===== */
@@ -36,7 +37,7 @@ const daysLeft = (dl) => (dl ? Math.ceil((new Date(dl + "T23:59:59") - new Date(
 
 /* ===== état ===== */
 const DEFAULT = {
-  player: { xp: 0, level: 1, streak: 0, totalDone: 0, stats: { FOR: 0, INT: 0, VOL: 0, SOC: 0 } },
+  player: { xp: 0, level: 1, streak: 0, totalDone: 0, stats: { FOR: 0, INT: 0, VOL: 0, SOC: 0, SAN: 0 } },
   quests: [],
   routines: [],
   history: {},
@@ -47,6 +48,8 @@ const DEFAULT = {
 let state = null;
 let tab = "home";
 let openQuest = null;
+let editingQuest = null;
+let editingRoutine = null;
 let swReg = null;
 
 function load() {
@@ -298,7 +301,8 @@ function questCardHTML(q, opts) {
       html += '<button class="sub' + (s.done ? " sdone" : "") + '" data-act="toggle-sub" data-q="' + q.id + '" data-s="' + s.id + '">' +
         '<div class="checkbox small' + (s.done ? " checked" : "") + '">' + (s.done ? "✓" : "") + "</div><span>" + esc(s.title) + "</span></button>";
     });
-    html += '<button class="del-quest" data-act="del-quest" data-q="' + q.id + '">Supprimer la quête</button></div>';
+    html += '<div class="btn-row"><button class="del-quest" style="border-color:rgba(160,110,255,.45);color:#b99cf0" data-act="edit-quest" data-q="' + q.id + '">✎ Modifier</button>' +
+      '<button class="del-quest" data-act="del-quest" data-q="' + q.id + '">Supprimer</button></div></div>';
   }
   html += "</div>";
   return html;
@@ -370,7 +374,7 @@ function routinesHTML() {
     html += '<div class="card"><div class="flex-between"><div>' +
       '<div class="card-title">' + esc(r.title) + "</div>" +
       '<div class="card-sub">' + r.days.map((d) => DAYS[d]).join(" · ") + (r.time ? " · ⏰ " + esc(r.time) : "") + " · " + STATS[r.stat || "VOL"].label + " · rang " + r.rank + "</div>" +
-      '</div><button class="del" data-act="del-routine" data-r="' + r.id + '">✕</button></div></div>';
+      '</div><div style="display:flex;gap:2px"><button class="del" style="color:#b99cf0" data-act="edit-routine" data-r="' + r.id + '">✎</button><button class="del" data-act="del-routine" data-r="' + r.id + '">✕</button></div></div></div>';
   });
   return html;
 }
@@ -488,35 +492,47 @@ function statRow(id, selected) {
     ).join("") + "</div>";
 }
 
-function showQuestForm() {
+function showQuestForm(editId) {
+  editingQuest = editId || null;
+  const q = editId ? state.quests.find((x) => x.id === editId) : null;
   const count = activeQuests().length;
+  let subsHTML = "";
+  if (q && q.subs.length) {
+    q.subs.forEach((s) => {
+      subsHTML += '<input class="f-input qf-sub" data-sid="' + s.id + '" value="' + esc(s.title) + '">';
+    });
+  } else {
+    subsHTML = '<input class="f-input qf-sub" placeholder="Étape 1 (ex : Réviser chapitre 3)">';
+  }
   const inner =
-    '<div class="sys-title">NOUVELLE QUÊTE</div><div class="form-body">' +
-    (count >= 3 ? '<div class="warn-box">⚠ Tu as déjà ' + count + " quêtes actives. Chaque quête ouverte divise ton focus.</div>" : "") +
-    '<label class="f-label">Objectif</label><input class="f-input" id="qf-title" placeholder="Ex : Valider le S1 du Master CCA">' +
-    '<label class="f-label">Rang de difficulté</label>' + rankRow("qf-rank", Object.keys(QUEST_RANKS), "D") +
-    '<label class="f-label">Attribut nourri</label>' + statRow("qf-stat", "INT") +
-    '<label class="f-label">Deadline (optionnel)</label><input class="f-input" id="qf-deadline" type="date">' +
-    '<label class="f-label">Sous-quêtes — commence par un verbe d\'action</label>' +
-    '<div id="qf-subs"><input class="f-input qf-sub" placeholder="Étape 1 (ex : Réviser chapitre 3)"></div>' +
+    '<div class="sys-title">' + (q ? "MODIFIER LA QUÊTE" : "NOUVELLE QUÊTE") + '</div><div class="form-body">' +
+    (!q && count >= 3 ? '<div class="warn-box">⚠ Tu as déjà ' + count + " quêtes actives. Chaque quête ouverte divise ton focus.</div>" : "") +
+    '<label class="f-label">Objectif</label><input class="f-input" id="qf-title" placeholder="Ex : Valider le S1 du Master CCA" value="' + (q ? esc(q.title) : "") + '">' +
+    '<label class="f-label">Rang de difficulté</label>' + rankRow("qf-rank", Object.keys(QUEST_RANKS), q ? q.rank : "D") +
+    '<label class="f-label">Attribut nourri</label>' + statRow("qf-stat", q ? q.stat || "INT" : "INT") +
+    '<label class="f-label">Deadline (optionnel)</label><input class="f-input" id="qf-deadline" type="date" value="' + (q ? esc(q.deadline || "") : "") + '">' +
+    '<label class="f-label">Sous-quêtes' + (q ? " — vide un champ pour supprimer l'étape" : " — commence par un verbe d'action") + "</label>" +
+    '<div id="qf-subs">' + subsHTML + "</div>" +
     '<button class="add-sub" data-act="add-sub">+ Ajouter une étape</button>' +
-    '</div><div class="btn-row"><button class="sys-btn ghost" data-act="close-modal">Annuler</button><button class="sys-btn" data-act="save-quest">Créer</button></div>';
+    '</div><div class="btn-row"><button class="sys-btn ghost" data-act="close-modal">Annuler</button><button class="sys-btn" data-act="save-quest">' + (q ? "Enregistrer" : "Créer") + "</button></div>";
   $("#modal").innerHTML = sysWindow(inner, "form");
 }
 
-function showRoutineForm() {
+function showRoutineForm(editId) {
+  editingRoutine = editId || null;
+  const r = editId ? state.routines.find((x) => x.id === editId) : null;
   const inner =
-    '<div class="sys-title">NOUVELLE ROUTINE</div><div class="form-body">' +
-    '<label class="f-label">Routine</label><input class="f-input" id="rf-title" placeholder="Ex : Street workout 30 min">' +
-    '<label class="f-label">Jours</label>' + dayRow("rf-days", [0, 1, 2, 3, 4, 5, 6]) +
-    '<label class="f-label">Heure de rappel (optionnel)</label><input class="f-input" id="rf-time" type="time">' +
-    '<label class="f-label">Attribut nourri</label>' + statRow("rf-stat", "VOL") +
-    '<label class="f-label">Rang (XP gagnée)</label>' + rankRow("rf-rank", Object.keys(ROUTINE_XP), "E") +
-    '</div><div class="btn-row"><button class="sys-btn ghost" data-act="close-modal">Annuler</button><button class="sys-btn" data-act="save-routine">Créer</button></div>';
+    '<div class="sys-title">' + (r ? "MODIFIER LA ROUTINE" : "NOUVELLE ROUTINE") + '</div><div class="form-body">' +
+    '<label class="f-label">Routine</label><input class="f-input" id="rf-title" placeholder="Ex : Street workout 30 min" value="' + (r ? esc(r.title) : "") + '">' +
+    '<label class="f-label">Jours</label>' + dayRow("rf-days", r ? r.days : [0, 1, 2, 3, 4, 5, 6]) +
+    '<label class="f-label">Heure de rappel (optionnel)</label><input class="f-input" id="rf-time" type="time" value="' + (r ? esc(r.time || "") : "") + '">' +
+    '<label class="f-label">Attribut nourri</label>' + statRow("rf-stat", r ? r.stat || "VOL" : "VOL") +
+    '<label class="f-label">Rang (XP gagnée)</label>' + rankRow("rf-rank", Object.keys(ROUTINE_XP), r ? r.rank : "E") +
+    '</div><div class="btn-row"><button class="sys-btn ghost" data-act="close-modal">Annuler</button><button class="sys-btn" data-act="save-routine">' + (r ? "Enregistrer" : "Créer") + "</button></div>";
   $("#modal").innerHTML = sysWindow(inner, "form");
 }
 
-function closeModal() { $("#modal").innerHTML = ""; }
+function closeModal() { $("#modal").innerHTML = ""; editingQuest = null; editingRoutine = null; }
 
 function pickedSingle(containerId) {
   const el = document.querySelector("#" + containerId + " .on");
@@ -529,31 +545,47 @@ function pickedMulti(containerId) {
 function saveQuestFromForm() {
   const title = ($("#qf-title").value || "").trim();
   if (!title) return;
-  const subs = [...document.querySelectorAll(".qf-sub")].map((i) => i.value.trim()).filter(Boolean)
-    .map((t) => ({ id: uid(), title: t, done: false }));
-  state.quests.push({
-    id: uid(), title,
+  const existing = editingQuest ? state.quests.find((x) => x.id === editingQuest) : null;
+  const subs = [];
+  [...document.querySelectorAll(".qf-sub")].forEach((inp) => {
+    const t = inp.value.trim();
+    if (!t) return;
+    const sid = inp.dataset.sid;
+    const old = sid && existing ? existing.subs.find((s) => s.id === sid) : null;
+    subs.push(old ? { id: old.id, title: t, done: old.done } : { id: uid(), title: t, done: false });
+  });
+  const payload = {
+    title,
     rank: pickedSingle("qf-rank") || "D",
     stat: pickedSingle("qf-stat") || "INT",
     deadline: $("#qf-deadline").value || "",
     subs,
-  });
+  };
+  if (existing) Object.assign(existing, payload);
+  else state.quests.push(Object.assign({ id: uid() }, payload));
+  const wasEdit = !!existing;
+  editingQuest = null;
   save(); closeModal(); render();
-  toast("NOUVELLE QUÊTE", title);
+  toast(wasEdit ? "QUÊTE MODIFIÉE" : "NOUVELLE QUÊTE", title);
 }
 
 function saveRoutineFromForm() {
   const title = ($("#rf-title").value || "").trim();
   const days = pickedMulti("rf-days");
   if (!title || days.length === 0) return;
-  state.routines.push({
-    id: uid(), title, days,
+  const existing = editingRoutine ? state.routines.find((x) => x.id === editingRoutine) : null;
+  const payload = {
+    title, days,
     time: $("#rf-time").value || "",
     stat: pickedSingle("rf-stat") || "VOL",
     rank: pickedSingle("rf-rank") || "E",
-  });
+  };
+  if (existing) Object.assign(existing, payload);
+  else state.routines.push(Object.assign({ id: uid() }, payload));
+  const wasEdit = !!existing;
+  editingRoutine = null;
   save(); closeModal(); render();
-  toast("ROUTINE ACTIVÉE", title);
+  toast(wasEdit ? "ROUTINE MODIFIÉE" : "ROUTINE ACTIVÉE", title);
   checkReminders();
 }
 
@@ -635,6 +667,16 @@ function checkReminders() {
 
 /* ===== évènements ===== */
 document.addEventListener("click", (e) => {
+  const pick = e.target.closest("[data-pick]");
+  if (pick) {
+    if (pick.dataset.pick === "multi") {
+      pick.classList.toggle("on");
+    } else {
+      [...pick.parentElement.children].forEach((el) => el.classList.remove("on"));
+      pick.classList.add("on");
+    }
+    return;
+  }
   const stop = e.target.closest("[data-stop]");
   const actEl = e.target.closest("[data-act]");
   if (!actEl) {
@@ -654,6 +696,8 @@ document.addEventListener("click", (e) => {
       render(); break;
     case "del-quest": deleteQuest(actEl.dataset.q); break;
     case "del-routine": deleteRoutine(actEl.dataset.r); break;
+    case "edit-quest": showQuestForm(actEl.dataset.q); break;
+    case "edit-routine": showRoutineForm(actEl.dataset.r); break;
     case "close-modal": closeModal(); break;
     case "overlay": if (e.target === actEl) closeModal(); break;
     case "save-quest": saveQuestFromForm(); break;

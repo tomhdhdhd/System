@@ -1,7 +1,7 @@
 "use strict";
 /* Service Worker — Le Système v3.0.0 */
 
-const CACHE = "systeme-v3.0.0";
+const CACHE = "systeme-v3.2.0";
 const ASSETS = [
   "./",
   "./index.html",
