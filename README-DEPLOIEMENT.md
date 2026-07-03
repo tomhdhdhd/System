@@ -79,4 +79,4 @@ Quand on fera une V4 : tu remplaces les fichiers dans le repo GitHub (Upload fil
 | `manifest.webmanifest` | Fiche d'identité de l'app (nom, icône, plein écran) |
 | `icon-192.png` / `icon-512.png` | Icônes d'écran d'accueil |
 
-Bon grind, chasseur. 🗡️
+Bon grind, chasseur. 🗡️ 
